@@ -18,7 +18,7 @@ async function run() {
     console.log('📡 피그마에서 데이터를 가져오는 중입니다...');
     const res = await api.get(`/files/${CLEAN_FILE_KEY}`);
 
-    const AI_RULES_PATTERN = /ai[\s_-]*rules?/i;
+    const AI_RULES_PATTERN = /(local[\s_-]*)?ai[\s_-]*rules?/i;
 
     const components = [];
     const devReadyNodes = [];
