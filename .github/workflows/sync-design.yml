@@ -1,0 +1,32 @@
+name: Design Sync PoC
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install axios
+
+      - name: Run Figma Extraction
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          FIGMA_FILE_KEY: ${{ secrets.FIGMA_FILE_KEY }}
+        run: node extract-design.js
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "design-sync-bot"
+          git config --global user.email "bot@github.com"
+          git add DESIGN_ANNOTATIONS.md
+          git diff-index --quiet HEAD || (git commit -m "chore: sync figma annotations" && git push)
