@@ -18,15 +18,30 @@ async function run() {
     console.log('📡 피그마에서 데이터를 가져오는 중입니다...');
     const res = await api.get(`/files/${CLEAN_FILE_KEY}`);
 
+    const AI_RULES_PATTERN = /ai[\s_-]*rules?/i;
+
     const components = [];
-    const annotations = [];
     const devReadyNodes = [];
+    const aiRulesSections = [];
+
+    const collectTexts = (node) => {
+      const texts = [];
+      if (node.type === 'TEXT' && node.characters) {
+        texts.push({ name: node.name, text: node.characters });
+      }
+      if (node.children) {
+        node.children.forEach(c => texts.push(...collectTexts(c)));
+      }
+      return texts;
+    };
 
     const walk = (node, path = '') => {
       const currentPath = path ? `${path} > ${node.name}` : node.name;
 
-      if (node.annotations && node.annotations.length > 0) {
-        annotations.push({ name: node.name, path: currentPath, annos: node.annotations });
+      if (AI_RULES_PATTERN.test(node.name)) {
+        const texts = collectTexts(node);
+        aiRulesSections.push({ name: node.name, path: currentPath, texts });
+        return;
       }
 
       if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
@@ -52,18 +67,24 @@ async function run() {
 
     let content = "# 📘 DESIGN INTENT (AUTO-GENERATED)\n\n";
 
-    // 1) Annotations (private beta)
-    if (annotations.length > 0) {
-      content += "## 📝 Annotations\n\n";
-      annotations.forEach(item => {
-        content += `### 🧩 ${item.name}\n`;
-        item.annos.forEach(a => {
-          content += `- **[${a.label || 'Spec'}]**: ${a.properties ? JSON.stringify(a.properties) : (a.notes || '내용 없음')}\n`;
-        });
-        content += "\n---\n\n";
+    // 1) AI Rules
+    if (aiRulesSections.length > 0) {
+      content += "## 🤖 AI Rules\n\n";
+      aiRulesSections.forEach(section => {
+        content += `### 📌 ${section.name}\n`;
+        content += `> 경로: ${section.path}\n\n`;
+        if (section.texts.length > 0) {
+          section.texts.forEach(t => {
+            content += `${t.text}\n\n`;
+          });
+        } else {
+          content += "_텍스트 노드가 없습니다._\n\n";
+        }
+        content += "---\n\n";
       });
     } else {
-      content += "> ℹ️ Annotations은 Figma REST API에서 아직 private beta라 기본 응답에 포함되지 않을 수 있습니다.\n\n";
+      content += "> ⚠️ \"AI Rules\" 이름의 섹션/프레임을 찾지 못했습니다.\n";
+      content += "> Figma에서 프레임 이름을 \"AI Rules\"로 지정해주세요.\n\n";
     }
 
     // 2) Components
@@ -72,13 +93,12 @@ async function run() {
       content += "| 이름 | 타입 | 설명 |\n";
       content += "|------|------|------|\n";
       components.forEach(c => {
-        const desc = c.description || '-';
-        content += `| ${c.name} | ${c.type} | ${desc} |\n`;
+        content += `| ${c.name} | ${c.type} | ${c.description || '-'} |\n`;
       });
       content += "\n";
     }
 
-    // 3) Component metadata from file-level
+    // 3) Component metadata
     const compEntries = Object.entries(componentMeta);
     if (compEntries.length > 0) {
       content += "## 📦 Component Metadata\n\n";
@@ -112,16 +132,12 @@ async function run() {
       content += "\n";
     }
 
-    if (components.length === 0 && compEntries.length === 0 && styleEntries.length === 0 && devReadyNodes.length === 0 && annotations.length === 0) {
-      content += "> ⚠️ 추출할 수 있는 디자인 정보가 없습니다.\n";
-    }
-
     fs.writeFileSync('./DESIGN_ANNOTATIONS.md', content);
     console.log(`✅ DESIGN_ANNOTATIONS.md 생성 완료!`);
+    console.log(`   - AI Rules 섹션: ${aiRulesSections.length}개`);
     console.log(`   - Components: ${components.length}개`);
     console.log(`   - Styles: ${styleEntries.length}개`);
     console.log(`   - Dev Status: ${devReadyNodes.length}개`);
-    console.log(`   - Annotations: ${annotations.length}개`);
 
   } catch (error) {
     console.error('❌ 에러 발생:');
