@@ -17,33 +17,112 @@ async function run() {
   try {
     console.log('📡 피그마에서 데이터를 가져오는 중입니다...');
     const res = await api.get(`/files/${CLEAN_FILE_KEY}`);
-    
-    const nodesWithAnno = [];
-    const findAnnos = (node) => {
+
+    const components = [];
+    const annotations = [];
+    const devReadyNodes = [];
+
+    const walk = (node, path = '') => {
+      const currentPath = path ? `${path} > ${node.name}` : node.name;
+
       if (node.annotations && node.annotations.length > 0) {
-        nodesWithAnno.push({ name: node.name, annos: node.annotations });
+        annotations.push({ name: node.name, path: currentPath, annos: node.annotations });
       }
-      if (node.children) node.children.forEach(findAnnos);
+
+      if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+        components.push({
+          name: node.name,
+          type: node.type,
+          path: currentPath,
+          description: node.description || null,
+        });
+      }
+
+      if (node.devStatus) {
+        devReadyNodes.push({ name: node.name, path: currentPath, status: node.devStatus });
+      }
+
+      if (node.children) node.children.forEach(c => walk(c, currentPath));
     };
 
-    findAnnos(res.data.document);
+    walk(res.data.document);
+
+    const componentMeta = res.data.components || {};
+    const styleMeta = res.data.styles || {};
 
     let content = "# 📘 DESIGN INTENT (AUTO-GENERATED)\n\n";
-    if (nodesWithAnno.length === 0) {
-      content += "> ⚠️ 피그마 파일에 공식 Annotation(주석)이 하나도 발견되지 않았습니다.\n";
-    } else {
-      nodesWithAnno.forEach(item => {
-        content += `### 🧩 Component: ${item.name}\n`;
+
+    // 1) Annotations (private beta)
+    if (annotations.length > 0) {
+      content += "## 📝 Annotations\n\n";
+      annotations.forEach(item => {
+        content += `### 🧩 ${item.name}\n`;
         item.annos.forEach(a => {
-          content += `- **[${a.label || 'Spec'}]**: ${a.notes || '내용 없음'}\n`;
+          content += `- **[${a.label || 'Spec'}]**: ${a.properties ? JSON.stringify(a.properties) : (a.notes || '내용 없음')}\n`;
         });
         content += "\n---\n\n";
       });
+    } else {
+      content += "> ℹ️ Annotations은 Figma REST API에서 아직 private beta라 기본 응답에 포함되지 않을 수 있습니다.\n\n";
+    }
+
+    // 2) Components
+    if (components.length > 0) {
+      content += "## 🧩 Components\n\n";
+      content += "| 이름 | 타입 | 설명 |\n";
+      content += "|------|------|------|\n";
+      components.forEach(c => {
+        const desc = c.description || '-';
+        content += `| ${c.name} | ${c.type} | ${desc} |\n`;
+      });
+      content += "\n";
+    }
+
+    // 3) Component metadata from file-level
+    const compEntries = Object.entries(componentMeta);
+    if (compEntries.length > 0) {
+      content += "## 📦 Component Metadata\n\n";
+      compEntries.forEach(([id, comp]) => {
+        content += `- **${comp.name}**`;
+        if (comp.description) content += `: ${comp.description}`;
+        content += `  _(key: ${comp.key})_\n`;
+      });
+      content += "\n";
+    }
+
+    // 4) Styles
+    const styleEntries = Object.entries(styleMeta);
+    if (styleEntries.length > 0) {
+      content += "## 🎨 Styles\n\n";
+      content += "| 이름 | 타입 | 설명 |\n";
+      content += "|------|------|------|\n";
+      styleEntries.forEach(([id, style]) => {
+        content += `| ${style.name} | ${style.styleType} | ${style.description || '-'} |\n`;
+      });
+      content += "\n";
+    }
+
+    // 5) Dev Status
+    if (devReadyNodes.length > 0) {
+      content += "## ✅ Dev Status\n\n";
+      devReadyNodes.forEach(n => {
+        const label = n.status.type === 'READY_FOR_DEV' ? '🟢 Ready for Dev' : '✅ Completed';
+        content += `- **${n.name}**: ${label}\n`;
+      });
+      content += "\n";
+    }
+
+    if (components.length === 0 && compEntries.length === 0 && styleEntries.length === 0 && devReadyNodes.length === 0 && annotations.length === 0) {
+      content += "> ⚠️ 추출할 수 있는 디자인 정보가 없습니다.\n";
     }
 
     fs.writeFileSync('./DESIGN_ANNOTATIONS.md', content);
-    console.log("✅ DESIGN_ANNOTATIONS.md 생성이 완료되었습니다!");
-    
+    console.log(`✅ DESIGN_ANNOTATIONS.md 생성 완료!`);
+    console.log(`   - Components: ${components.length}개`);
+    console.log(`   - Styles: ${styleEntries.length}개`);
+    console.log(`   - Dev Status: ${devReadyNodes.length}개`);
+    console.log(`   - Annotations: ${annotations.length}개`);
+
   } catch (error) {
     console.error('❌ 에러 발생:');
     if (error.response) {
